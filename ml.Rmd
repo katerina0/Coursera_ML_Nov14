@@ -77,7 +77,7 @@ print_dimensions(testing)
 
 Decision trees (either with or without preprocessing) do not seem to work well for this dataset.
 
-```{r echo=FALSE}
+```{r echo=FALSE, include=FALSE}
 cartModelFit <- train(classe~., method="rpart", data=training)
 cm <- confusionMatrix(testing$classe, predict(cartModelFit, newdata=testing))
 print(cm)
@@ -98,13 +98,15 @@ print(cm)
 
 We've got good results with Random Forests. Training set accuracy is 100% with 95% CI : (0.9981, 1)
 
-```{r echo=FALSE}
+```{r echo=FALSE, include=FALSE}
 rfModelFit <- train(classe~.,data=training, method="rf",prox=TRUE,
                     trControl=trainControl(verboseIter=TRUE))
 pred_training <- predict(rfModelFit, training)
 training_cm <- confusionMatrix(pred_training, training$classe)
 # overly verbous, commenting out
 # print(training_cm)
+```
+```{r echo=FALSE}
 table(pred_training, training$classe)
 ```
 
@@ -122,9 +124,11 @@ table(pred_test, testing$classe)
 
 Boosting also works quite well here. Training set accuracy is 99.44% with 95% CI : (0.99, 0.9972)
 
-```{r echo=FALSE}
+```{r echo=FALSE, include=FALSE}
 gbmModelFit <- train(classe ~ ., method="gbm",data=training,verbose=TRUE)
 pred_training <- predict(gbmModelFit, training)
+```
+```{r echo=FALSE}
 training_cm <- confusionMatrix(pred_training, training$classe)
 # overly verbous, commenting out
 # print(training_cm)
@@ -145,12 +149,14 @@ table(pred_test, testing$classe)
 
 We've also attempted to use linear discriminant analysis, with not as great results at the other two. Training set accuracy is 72.4% with 95% confidence interval (0.7037, 0.7437)
 
+```{r echo=FALSE, include=FALSE}
+```
 ```{r echo=FALSE}
 ldaModelFit <- train(classe ~ .,data=training, method="lda")
 pred_training <- predict(ldaModelFit, training)
 training_cm <- confusionMatrix(pred_training, training$classe)
 # overly verbous, commenting out
-print(training_cm)
+# print(training_cm)
 table(training$classe, pred_training)
 ```
 
