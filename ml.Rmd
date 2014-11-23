@@ -1,0 +1,191 @@
+---
+title: "Practical Machine Learning Project 11/2014"
+author: "Ekaterina Mineeva"
+date: "November 22, 2014"
+output: html_document
+---
+
+This is a course project writeup for Coursera's Practical Machine Learning, taugh by Jeff Leek, Johns Hopkins University. 
+<https://class.coursera.org/predmachlearn-007>
+
+The goal is to build a machine learning model that uses accelerometer data collected during weighlifting exercises to determine a manner in which the exercise was performed. 
+To learn more about the data, please see the secion on the Weight Lifting Exercises Dataset at <http://groupware.les.inf.puc-rio.br/har>
+
+The training data for this project are available here: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+The test data are available here: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+**Data import and clean up**
+
+We start off by importing both the training and test (20 records with unknown outcomes, to be used for course submission), and cleaning up data in both sets in the same fashion. 
+
+While it is important to get rid of NAs (~100 columns in the set contain mostly NAs), getting rid of the X variable is crucial. Records are sorted by their "classe' (from 'A' to 'E'), so there appears to be a correlation between X (numerical id in the set) and the outcome category where, of course, there should be none. 
+
+```{r echo=FALSE}
+pml_all_data <-read.csv('/Users/katerina/Downloads/pml-training.csv', header=T)
+library(ggplot2)
+# in theory we should split the dataset into train/test, and limit investigations to train subset only,
+# but since we are not training a model, there is little point in being overly pedantic
+qplot(X, classe, colour=classe, data=pml_all_data)
+```
+
+We are left with 52 potential predictors.
+
+```{r echo=FALSE}
+print_dimensions <- function(dataframe) {
+  name <- deparse(substitute(dataframe))
+  dims <- dim(dataframe)
+  print(sprintf('%s with %d columns and %d rows', name, dims[2], dims[1]))
+}
+
+plm_read_and_cleanup <- function(filepath) {
+  data <- read.csv(filepath, header=T, stringsAsFactors=FALSE)
+  if ("classe" %in% colnames(data)) {
+    data$classe <- as.factor(data$classe)
+  }
+  data$user_name <- as.factor(data$user_name)
+  # get rid of NAs and empty columns
+  data <- data[,colSums(is.na(data)) == 0 & colSums(data == "") == 0]
+  # drop first 7 columns, as these do not seem predictive.
+  data <- data[8:60]
+  return(data)
+}
+pml_data <- plm_read_and_cleanup('/Users/katerina/Downloads/pml-training.csv')
+pml_validation <- plm_read_and_cleanup('/Users/katerina/Downloads/pml-testing.csv')
+print_dimensions(pml_data)
+print_dimensions(pml_validation)
+```
+**Parition data into training and test sets**
+
+We then partition first dataset into training and testing. We've initially considered a 60/40 split, but a smaller training set allows for
+considerably faster model building.
+
+```{r echo=FALSE, include=FALSE}
+library(caret);
+```
+```{r echo=FALSE}
+set.seed(84372)
+percent_training = 0.10
+print(sprintf('Using %.02f percent of data for training', percent_training * 100))
+inTrain <- createDataPartition(y=pml_data$classe, p=percent_training, list=FALSE)
+training <- pml_data[inTrain,]
+testing <- pml_data[-inTrain,]
+print_dimensions(training)
+print_dimensions(testing)
+```
+
+**Decision Trees**
+
+Decision trees (either with or without preprocessing) do not seem to work well for this dataset.
+
+```{r echo=FALSE}
+cartModelFit <- train(classe~., method="rpart", data=training)
+cm <- confusionMatrix(testing$classe, predict(cartModelFit, newdata=testing))
+print(cm)
+
+# Principal Components Analysis requires all numeric values
+training_numeric <- training[sapply(training, is.numeric)]
+preProc <- preProcess(training_numeric, method="pca",thresh=.95)
+trainingPC <- predict(preProc, training_numeric)
+modelFit <- train(training$classe ~.,method="rpart", data=trainingPC)
+# confusionMatrix(training$classe, predict(modelFit, training))
+testing_numeric <- testing[sapply(testing, is.numeric)]
+testingPC <- predict(preProc, testing_numeric)
+cm <- confusionMatrix(testing$classe, predict(modelFit,newdata=testingPC))
+print(cm)
+```
+
+**Random Forest**
+
+We've got good results with Random Forests. Training set accuracy is 100% with 95% CI : (0.9981, 1)
+
+```{r echo=FALSE}
+rfModelFit <- train(classe~.,data=training, method="rf",prox=TRUE,
+                    trControl=trainControl(verboseIter=TRUE))
+pred_training <- predict(rfModelFit, training)
+training_cm <- confusionMatrix(pred_training, training$classe)
+# overly verbous, commenting out
+# print(training_cm)
+table(pred_training, training$classe)
+```
+
+Test set accuracy is (as expected, slighly worse) 94.55% with 95% CI : (0.9421, 0.9488)
+
+```{r echo=FALSE}
+pred_test <- predict(rfModelFit,newdata=testing)
+test_cm <- confusionMatrix(pred_test, testing$classe)
+# overly verbous, commenting out
+# print(test_cm)
+table(pred_test, testing$classe)
+```
+
+**Boosting**
+
+Boosting also works quite well here. Training set accuracy is 99.44% with 95% CI : (0.99, 0.9972)
+
+```{r echo=FALSE}
+gbmModelFit <- train(classe ~ ., method="gbm",data=training,verbose=TRUE)
+pred_training <- predict(gbmModelFit, training)
+training_cm <- confusionMatrix(pred_training, training$classe)
+# overly verbous, commenting out
+# print(training_cm)
+table(pred_training, training$classe)
+```
+
+Test set accuracy is 93.15% with 95% CI : (0.9277, 0.9352)
+
+```{r echo=FALSE}
+pred_test <- predict(gbmModelFit,newdata=testing)
+test_cm <- confusionMatrix(pred_test, testing$classe)
+# overly verbous, commenting out
+# print(test_cm)
+table(pred_test, testing$classe)
+```
+
+**LDA**
+
+We've also attempted to use linear discriminant analysis, with not as great results at the other two. Training set accuracy is 72.4% with 95% confidence interval (0.7037, 0.7437)
+
+```{r echo=FALSE}
+ldaModelFit <- train(classe ~ .,data=training, method="lda")
+pred_training <- predict(ldaModelFit, training)
+training_cm <- confusionMatrix(pred_training, training$classe)
+# overly verbous, commenting out
+print(training_cm)
+table(training$classe, pred_training)
+```
+
+Test set accuracy is 69.12% with 95% confidence interval (0.6844, 0.6981)
+```{r echo=FALSE}
+pred_test <- predict(ldaModelFit,newdata=testing)
+test_cm <- confusionMatrix(pred_test, testing$classe)
+# overly verbous, commenting out
+# print(test_cm)
+table(pred_test, testing$classe)
+```
+
+**Ensemble Classifier**
+
+Both random forest and boosting models have good accuracy, but they do not always agree. For the project submission, we've decided to combine results of the three classifiers using majority vote. With models built on 10% training sample, 19 out of 20 predictions were correct. The one incorrect prediction has a correct class predicted by the gbm model.
+
+```{r echo=FALSE}
+rf <- predict(rfModelFit, pml_validation)
+gbm <- predict(gbmModelFit, pml_validation)
+lda <- predict(ldaModelFit, pml_validation)
+result <- data.frame(rf, gbm, lda) 
+
+majorityVote <- function(row) {
+  names(sort(summary(as.factor(row)), decreasing=T))[1]
+}
+result$majorityVote <- apply(result, 1, majorityVote) 
+print(result)
+
+# publishing
+#pml_write_files = function(x) {
+#  n = length(x)
+#  for (i in 1:n ) {
+#    filename = paste0("/Users/katerina/Documents/ml/problem_id_", i, ".txt")
+#    write.table(x[i], file=filename, quote=FALSE, row.names=FALSE, col.names=FALSE)
+#  }
+#}
+#pml_write_files(result$majorityVote)
+```
